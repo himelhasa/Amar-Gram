@@ -1,0 +1,93 @@
+<!doctype html><html lang="bn"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#1e293b"><title>আমাদের গ্রাম - Admin</title><style>
+*{box-sizing:border-box}body{margin:0;background:#f1f5f9;color:#0f172a;font-family:system-ui,"Noto Sans Bengali",sans-serif}.wrap{max-width:900px;margin:auto;padding:0 14px 40px}
+header{background:linear-gradient(135deg,#1e293b,#334155);color:#fff;padding:18px 0}header .wrap{display:flex;justify-content:space-between;align-items:center;padding-bottom:0}h1{margin:0;font-size:20px}
+.panel{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:14px;margin:12px 0;box-shadow:0 2px 10px #0000000a}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:14px 0}.st{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:10px 4px;text-align:center}.st b{display:block;font-size:22px}.st span{font-size:11px;color:#64748b}
+.tabs{display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px}.tabs button{white-space:nowrap}
+.item{padding:12px 0;border-bottom:1px solid #eef2f7}.item:last-child{border:0}.tag{display:inline-block;background:#e0f2fe;color:#0369a1;padding:2px 9px;border-radius:14px;font-size:12px}.ok{background:#dcfce7;color:#166534}.no{background:#fee2e2;color:#b91c1c}.wait{background:#fef3c7;color:#92400e}.muted{color:#64748b;font-size:13px}
+button{border:0;border-radius:10px;padding:9px 13px;background:#1e293b;color:#fff;font-weight:700;cursor:pointer;margin:3px 3px 3px 0}.outline{background:#fff;color:#1e293b;border:1px solid #1e293b}.danger{background:#dc2626}.good{background:#16a34a}
+input,textarea{width:100%;padding:11px;margin:6px 0 10px;border:1px solid #cbd5e1;border-radius:10px;font:inherit;font-size:16px}
+.thumb{width:100%;max-height:320px;object-fit:cover;border-radius:12px}.center{max-width:420px;margin:60px auto}
+</style></head><body>
+<header><div class="wrap"><h1>⚙️ আমাদের গ্রাম · Admin</h1><div id="who"></div></div></header>
+<main class="wrap" id="app"><p>লোড হচ্ছে...</p></main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL="https://ggnnnqbjzrbkpxhpsmpl.supabase.co";
+const SUPABASE_KEY="sb_publishable_GP7EY_hLfdNCa8_DNiScAQ_9qVXjyj8";
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
+const val=id=>($(id)?.value||"").trim();
+const db=window.supabase?window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY):null;
+let me=null,prof=null,tab="p";
+const pub=p=>db.storage.from("photos").getPublicUrl(p).data.publicUrl;
+const st=s=>s==="approved"?'<span class="tag ok">অনুমোদিত</span>':'<span class="tag wait">অপেক্ষায়</span>';
+async function boot(){
+ if(!db){$("app").innerHTML='<div class="panel">ইন্টারনেট সংযোগ বা Supabase লোড হয়নি। পেজ রিলোড করুন।</div>';return}
+ const s=await db.auth.getSession();me=s.data.session?s.data.session.user:null;
+ if(!me)return loginView();
+ const r=await db.from("profiles").select("name,role").eq("id",me.id).maybeSingle();prof=r.data;
+ if(!prof||prof.role!=="admin")return denied();
+ db.from("member_contacts").upsert({id:me.id,email:me.email}).then(()=>{},()=>{});
+ $("who").innerHTML=`<span class="muted" style="color:#cbd5e1">${esc(prof.name)}</span> <button class="outline" onclick="logout()">লগআউট</button>`;
+ shell();
+}
+function loginView(){$("who").innerHTML="";$("app").innerHTML=`<div class="panel center"><h2>🔐 Admin লগইন</h2><input id="le" type="email" placeholder="ইমেইল"><input id="lp" type="password" placeholder="পাসওয়ার্ড"><button onclick="doLogin()">লগইন</button></div>`}
+async function doLogin(){const r=await db.auth.signInWithPassword({email:val("le"),password:$("lp").value});if(r.error)return alert(r.error.message);boot()}
+function denied(){$("who").innerHTML="";$("app").innerHTML=`<div class="panel center"><h2>⛔ অনুমতি নেই</h2><p>এই অ্যাকাউন্ট (${esc(me.email)}) Admin নয়।</p><button onclick="logout()">লগআউট</button></div>`}
+async function logout(){await db.auth.signOut();boot()}
+function shell(){
+ const T=[["p","অনুমোদন"],["m","সদস্য"],["c","পোস্ট"],["g","ছবি"],["d","রক্তদাতা"],["n","নোটিশ"],["e","জরুরি নম্বর"]];
+ $("app").innerHTML=`<div class="stats" id="stats"></div><div class="tabs">${T.map(([k,l])=>`<button id="t_${k}" onclick="go('${k}')">${l}</button>`).join("")}</div><div class="panel" id="content"></div>`;
+ stats();go(tab);
+}
+async function stats(){
+ const c=(t,f)=>{let q=db.from(t).select("*",{count:"exact",head:true});return f?f(q):q};
+ const [m,p,pp,pf]=await Promise.all([c("profiles"),c("posts"),c("posts",q=>q.eq("status","pending")),c("photos",q=>q.eq("status","pending"))]);
+ $("stats").innerHTML=[["সদস্য",m.count],["মোট পোস্ট",p.count],["অপেক্ষমাণ পোস্ট",pp.count],["অপেক্ষমাণ ছবি",pf.count]].map(([l,n])=>`<div class="st"><b>${n??0}</b><span>${l}</span></div>`).join("");
+}
+function go(t){tab=t;document.querySelectorAll(".tabs button").forEach(b=>b.className=b.id==="t_"+t?"":"outline");view()}
+function postRow(x,acts){return `<div class="item"><b>${esc(x.title)}</b> ${st(x.status)}<br>${esc(x.body)}${x.image_path?`<br><img class="thumb" loading="lazy" src="${esc(pub(x.image_path))}">`:""}<br><span class="tag">${esc(x.type)}</span> <span class="muted">· ${esc(x.profiles?.name||"সদস্য")}</span><br>${acts}</div>`}
+function photoRow(x,acts){return `<div class="item"><img class="thumb" loading="lazy" src="${esc(pub(x.path))}"><p>${esc(x.caption)} ${st(x.status)} <span class="muted">· ${esc(x.profiles?.name||"সদস্য")}</span></p>${acts}</div>`}
+const ap=(t,id)=>`<button class="good" onclick="setSt('${t}',${id},'approved')">✅ অনুমোদন</button>`;
+const dl=(t,id,path)=>`<button class="danger" onclick="delRow('${t}',${id}${path?`,'${esc(path)}'`:""})">মুছুন</button>`;
+async function view(){
+ const c=$("content");c.innerHTML="লোড হচ্ছে...";let h="";
+ try{
+ if(tab==="p"){
+  const [p,f]=await Promise.all([db.from("posts").select("*,profiles(name)").eq("status","pending").order("created_at"),db.from("photos").select("*,profiles(name)").eq("status","pending").order("created_at")]);
+  h=`<h3>অপেক্ষমাণ পোস্ট (${(p.data||[]).length})</h3>`+((p.data||[]).map(x=>postRow(x,ap("posts",x.id)+dl("posts",x.id,x.image_path))).join("")||'<p class="muted">কিছু নেই ✅</p>')+`<h3>অপেক্ষমাণ ছবি (${(f.data||[]).length})</h3>`+((f.data||[]).map(x=>photoRow(x,ap("photos",x.id)+dl("photos",x.id,x.path))).join("")||'<p class="muted">কিছু নেই ✅</p>');
+ }else if(tab==="m"){
+  const [r,ce]=await Promise.all([db.from("profiles").select("*").order("created_at",{ascending:false}),db.from("member_contacts").select("*")]);
+  const em={};(ce.data||[]).forEach(x=>em[x.id]=x.email);
+  const list=r.data||[];window.MAILS=list.map(u=>em[u.id]).filter(Boolean);
+  h=`<p class="muted">মোট ${list.length} জন · ইমেইল আছে ${window.MAILS.length} জনের</p><button onclick="mailAll()">✉️ সবাইকে মেইল</button><button class="outline" onclick="copyMails()">📋 সব ইমেইল কপি</button>`+list.map(u=>`<div class="item"><b>${esc(u.name)}</b> ${u.role==="admin"?'<span class="tag">Admin</span>':""} ${u.blocked?'<span class="tag no">ব্লক</span>':""}${em[u.id]?`<br>✉️ <a href="mailto:${esc(em[u.id])}">${esc(em[u.id])}</a>`:'<br><span class="muted">ইমেইল এখনো আসেনি (সদস্য একবার লগইন করলে আসবে)</span>'}${u.id===me.id?' <span class="muted">(আপনি)</span>':`<br><button class="outline" onclick="memAct('${u.id}','role','${u.role==="admin"?"user":"admin"}')">${u.role==="admin"?"Admin সরান":"Admin বানান"}</button><button class="${u.blocked?"good":"danger"}" onclick="memAct('${u.id}','blocked',${!u.blocked})">${u.blocked?"আনব্লক":"ব্লক"}</button>`}</div>`).join("")||'<p class="muted">কেউ নেই</p>';
+ }else if(tab==="c"){
+  const r=await db.from("posts").select("*,profiles(name)").order("created_at",{ascending:false}).limit(100);
+  h=(r.data||[]).map(x=>postRow(x,(x.status!=="approved"?ap("posts",x.id):`<button class="outline" onclick="setSt('posts',${x.id},'pending')">লুকান</button>`)+dl("posts",x.id,x.image_path))).join("")||'<p class="muted">কোনো পোস্ট নেই</p>';
+ }else if(tab==="g"){
+  const r=await db.from("photos").select("*,profiles(name)").order("created_at",{ascending:false}).limit(60);
+  h=(r.data||[]).map(x=>photoRow(x,(x.status!=="approved"?ap("photos",x.id):`<button class="outline" onclick="setSt('photos',${x.id},'pending')">লুকান</button>`)+dl("photos",x.id,x.path))).join("")||'<p class="muted">কোনো ছবি নেই</p>';
+ }else if(tab==="d"){
+  const r=await db.from("donors").select("*").order("blood");
+  h=(r.data||[]).map(x=>`<div class="item"><b>${esc(x.name)}</b> <span class="tag">${esc(x.blood)}</span> ${esc(x.phone)}<br>${dl("donors",x.id)}</div>`).join("")||'<p class="muted">কোনো রক্তদাতা নেই</p>';
+ }else if(tab==="n"){
+  const r=await db.from("notices").select("*").order("created_at",{ascending:false});
+  h=`<h3>নতুন নোটিশ</h3><input id="nt" placeholder="শিরোনাম"><textarea id="nb" rows="3" placeholder="বিস্তারিত"></textarea><button onclick="addNotice()">প্রকাশ করুন</button><h3>প্রকাশিত নোটিশ</h3>`+((r.data||[]).map(x=>`<div class="item"><b>${esc(x.title)}</b><br>${esc(x.body)}<br>${dl("notices",x.id)}</div>`).join("")||'<p class="muted">কোনো নোটিশ নেই</p>');
+ }else{
+  const r=await db.from("emergency").select("*").order("id");
+  h=`<h3>নতুন জরুরি নম্বর</h3><input id="et" placeholder="নাম (যেমন: থানা, অ্যাম্বুলেন্স)"><input id="ep" type="tel" placeholder="ফোন নম্বর"><button onclick="addEm()">যোগ করুন</button><h3>তালিকা</h3>`+((r.data||[]).map(x=>`<div class="item"><b>${esc(x.title)}</b> ${esc(x.phone)}<br>${dl("emergency",x.id)}</div>`).join("")||'<p class="muted">কোনো নম্বর নেই</p>');
+ }
+ }catch(e){console.error(e);h='<p class="muted">তথ্য আনতে সমস্যা হয়েছে।</p>'}
+ c.innerHTML=h;
+}
+function mailAll(){if(!window.MAILS||!window.MAILS.length)return alert("কোনো ইমেইল নেই");location.href="mailto:?bcc="+window.MAILS.map(encodeURIComponent).join(",")+"&subject="+encodeURIComponent("আমাদের গ্রাম")}
+async function copyMails(){const t=(window.MAILS||[]).join(", ");if(!t)return alert("কোনো ইমেইল নেই");try{await navigator.clipboard.writeText(t);alert("ইমেইলগুলো কপি হয়েছে")}catch(e){prompt("কপি করুন:",t)}}
+async function after(r){if(r.error)return alert(r.error.message);stats();view()}
+async function setSt(t,id,s){after(await db.from(t).update({status:s}).eq("id",id))}
+async function delRow(t,id,path){if(!confirm("মুছবেন?"))return;if(path)await db.storage.from("photos").remove([path]);after(await db.from(t).delete().eq("id",id))}
+async function memAct(id,f,v){if(!confirm("নিশ্চিত?"))return;after(await db.from("profiles").update({[f]:v}).eq("id",id))}
+async function addNotice(){if(!val("nt"))return alert("শিরোনাম লিখুন");after(await db.from("notices").insert({title:val("nt"),body:val("nb")}))}
+async function addEm(){if(!val("et")||!val("ep"))return alert("নাম ও নম্বর দিন");after(await db.from("emergency").insert({title:val("et"),phone:val("ep")}))}
+boot();
+</script></body></html>
